@@ -11,9 +11,10 @@ import {
   waitForLCP,
   loadBlocks,
   loadCSS,
-} from './aem.js';
+} from './lib-franklin.js';
 
 const LCP_BLOCKS = []; // add your LCP blocks to the list
+window.hlx.RUM_GENERATION = 'project-1'; // add your RUM generation information here
 
 /**
  * Builds hero block and prepends to main in a new section.
@@ -31,18 +32,6 @@ function buildHeroBlock(main) {
 }
 
 /**
- * load fonts.css and set a session storage flag
- */
-async function loadFonts() {
-  await loadCSS(`${window.hlx.codeBasePath}/styles/fonts.css`);
-  try {
-    if (!window.location.hostname.includes('localhost')) sessionStorage.setItem('fonts-loaded', 'true');
-  } catch (e) {
-    // do nothing
-  }
-}
-
-/**
  * Builds all synthetic blocks in a container element.
  * @param {Element} main The container element
  */
@@ -55,6 +44,29 @@ function buildAutoBlocks(main) {
   }
 }
 
+export function addAnchorLink(elem) {
+  const link = document.createElement('a');
+  link.setAttribute('href', `#${elem.id || ''}`);
+  link.setAttribute('title', `Copy link to "${elem.textContent}" to clipboard`);
+  link.classList.add('anchor-link');
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    navigator.clipboard.writeText(link.href);
+    window.location.href = link.href;
+    e.target.classList.add('anchor-link-copied');
+    setTimeout(() => e.target.classList.remove('anchor-link-copied'), 1000);
+  });
+  link.innerHTML = elem.innerHTML;
+  elem.innerHTML = '';
+  elem.append(link);
+}
+
+export function decorateHeadings(main) {
+  main.querySelectorAll('h2, h3, h4, h5, h6').forEach((h) => {
+    addAnchorLink(h);
+  });
+}
+
 /**
  * Decorates the main element.
  * @param {Element} main The main element
@@ -64,6 +76,7 @@ export function decorateMain(main) {
   // hopefully forward compatible button decoration
   decorateButtons(main);
   decorateIcons(main);
+  decorateHeadings(main);
   buildAutoBlocks(main);
   decorateSections(main);
   decorateBlocks(main);
@@ -79,17 +92,24 @@ async function loadEager(doc) {
   const main = doc.querySelector('main');
   if (main) {
     decorateMain(main);
-    document.body.classList.add('appear');
     await waitForLCP(LCP_BLOCKS);
   }
+}
 
-  try {
-    /* if desktop (proxy for fast connection) or fonts already loaded, load fonts.css */
-    if (window.innerWidth >= 900 || sessionStorage.getItem('fonts-loaded')) {
-      loadFonts();
-    }
-  } catch (e) {
-    // do nothing
+/**
+ * Adds the favicon.
+ * @param {string} href The favicon URL
+ */
+export function addFavIcon(href) {
+  const link = document.createElement('link');
+  link.rel = 'icon';
+  link.type = 'image/svg+xml';
+  link.href = href;
+  const existingLink = document.querySelector('head link[rel="icon"]');
+  if (existingLink) {
+    existingLink.parentElement.replaceChild(link, existingLink);
+  } else {
+    document.getElementsByTagName('head')[0].appendChild(link);
   }
 }
 
@@ -109,8 +129,7 @@ async function loadLazy(doc) {
   loadFooter(doc.querySelector('footer'));
 
   loadCSS(`${window.hlx.codeBasePath}/styles/lazy-styles.css`);
-  loadFonts();
-
+  addFavIcon(`${window.hlx.codeBasePath}/styles/favicon.svg`);
   sampleRUM('lazy');
   sampleRUM.observe(main.querySelectorAll('div[data-block-name]'));
   sampleRUM.observe(main.querySelectorAll('picture > img'));
@@ -133,3 +152,33 @@ async function loadPage() {
 }
 
 loadPage();
+
+// open editor on custom event
+const openEditor = async () => {
+  const imsOrgId = '@formsinternal01';
+  const currentPageUrl = window.location.href.replace(/^https?:\/\//i, '');
+  const editorUrl = `https://experience.adobe.com/#/${imsOrgId}/aem/editor/canvas/${currentPageUrl}`;
+  const formElement = document.documentElement.querySelector('div.form');
+  if (formElement === null) {
+    alert('No Form Found on page');
+  } else {
+    window.open(editorUrl, '_blank');
+  }
+};
+
+const sk = document.querySelector('helix-sidekick');
+if (sk) {
+  // sidekick already loaded
+  sk.addEventListener('custom:editform', openEditor);
+} else {
+  // wait for sidekick to be loaded
+  document.addEventListener(
+    'sidekick-ready',
+    () => {
+      document
+        .querySelector('helix-sidekick')
+        .addEventListener('custom:editform', openEditor);
+    },
+    { once: true },
+  );
+}
